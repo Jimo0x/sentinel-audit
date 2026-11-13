@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Sentinel output
+reports/
+*.sentinel.json
+*.sentinel.html
+*.sentinel.md
+
+# Engagement scope files may contain client data — never commit real ones
+scopes/*.yaml
+scopes/*.yml
+scopes/*.json
+!scopes/example.yaml
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

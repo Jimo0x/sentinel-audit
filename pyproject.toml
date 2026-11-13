@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentinel-audit"
+version = "0.1.0"
+description = "Authorized security auditing framework — reconnaissance, scanning, and reporting with built-in rules-of-engagement enforcement."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Sentinel Audit contributors" }]
+keywords = ["security", "audit", "pentest", "reconnaissance", "infosec"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+# Core framework is intentionally dependency-free (standard library only),
+# so it runs anywhere Python runs — including locked-down audit laptops.
+dependencies = []
+
+[project.optional-dependencies]
+# Optional niceties; the tool degrades gracefully without them.
+yaml = ["PyYAML>=6.0"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+sentinel = "sentinel.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/"
+Issues = "https://github.com/"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sentinel*"]

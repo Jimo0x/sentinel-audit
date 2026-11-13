@@ -1,0 +1,7 @@
+# The core framework uses only the Python standard library.
+# These are OPTIONAL and the tool works without them:
+#
+#   PyYAML>=6.0    # nicer YAML scope files (JSON scope files work without it)
+#   pytest>=7.0    # running the test suite
+#
+# Install optional extras with:  pip install -e ".[yaml,dev]"

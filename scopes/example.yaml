@@ -1,0 +1,27 @@
+# Example engagement scope file.
+#
+# Sentinel will not probe ANYTHING unless it matches an entry in `targets`
+# (and is not in `exclude`). Copy this file, edit it for your engagement, and
+# keep real scope files OUT of version control (see .gitignore).
+#
+# YAML is supported if PyYAML is installed; otherwise use the JSON form
+# (scopes/example.json) which needs no dependencies.
+
+engagement: "Local self-test"
+authorized_by: "you@example.com — you own/control these hosts"
+authorized_until: "2030-12-31"
+
+# Hosts and CIDR ranges you are authorized to test.
+targets:
+  - 127.0.0.1
+  - localhost
+
+# Anything here is removed from scope even if it matches `targets`.
+exclude: []
+
+# Optional defaults applied when the CLI doesn't override them.
+defaults:
+  modules: [discovery, portscan, services, tls, http, dns]
+  ports: common          # common | full | "22,80,443,8080" | "1-1024"
+  timeout: 2.0
+  concurrency: 100
