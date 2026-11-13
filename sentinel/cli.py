@@ -13,6 +13,17 @@ from sentinel.modules.base import ModuleContext
 
 DEFAULT_MODULES = ["discovery", "portscan", "services", "tls", "http", "dns"]
 
+# Named bundles of modules for common audit goals.
+PROFILES = {
+    "quick": ["discovery", "portscan", "services"],
+    "default": DEFAULT_MODULES,
+    "web": ["http", "tls", "exposure", "webcrawl"],
+    "server": ["discovery", "portscan", "services", "tls", "sshaudit"],
+    "email": ["dns", "emailsec"],
+    "full": ["discovery", "portscan", "services", "tls", "http", "dns",
+             "webcrawl", "exposure", "emailsec", "sshaudit"],
+}
+
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
@@ -29,8 +40,10 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--target", action="append", default=[],
                      help="limit to this target (repeatable). Must be in scope. "
                           "Defaults to every target in the scope file.")
+    run.add_argument("--profile", default=None, choices=sorted(PROFILES),
+                     help="module bundle: " + " | ".join(f"{k}={','.join(v)}" for k, v in PROFILES.items()))
     run.add_argument("--modules", default=None,
-                     help=f"comma-separated modules (default: scope default or {','.join(DEFAULT_MODULES)})")
+                     help=f"comma-separated modules (overrides --profile; default: scope default or {','.join(DEFAULT_MODULES)})")
     run.add_argument("--ports", default=None, help="port spec: common|full|RANGE|LIST")
     run.add_argument("--timeout", type=float, default=None, help="per-connection timeout seconds")
     run.add_argument("--concurrency", type=int, default=None, help="max concurrent connections")
@@ -60,7 +73,12 @@ def _resolve_run_config(scope: Scope, args) -> tuple[list[str], list[str], Modul
     defaults = scope.defaults or {}
     specs = args.target or list(scope.targets)
 
-    modules_arg = args.modules or defaults.get("modules") or DEFAULT_MODULES
+    if args.modules:
+        modules_arg = args.modules
+    elif getattr(args, "profile", None):
+        modules_arg = PROFILES[args.profile]
+    else:
+        modules_arg = defaults.get("modules") or DEFAULT_MODULES
     if isinstance(modules_arg, str):
         module_names = [m.strip() for m in modules_arg.split(",") if m.strip()]
     else:

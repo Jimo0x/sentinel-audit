@@ -44,6 +44,46 @@ def _negotiated(ip: str, port: int, server_name: str, timeout: float) -> tuple[s
         return None, None
 
 
+# Protocol versions to probe individually, with the severity of supporting each.
+_PROTO_PROBES = [
+    ("SSLv3", getattr(ssl.TLSVersion, "SSLv3", None), Severity.CRITICAL),
+    ("TLSv1", ssl.TLSVersion.TLSv1, Severity.HIGH),
+    ("TLSv1.1", ssl.TLSVersion.TLSv1_1, Severity.HIGH),
+    ("TLSv1.2", ssl.TLSVersion.TLSv1_2, Severity.INFO),
+    ("TLSv1.3", ssl.TLSVersion.TLSv1_3, Severity.INFO),
+]
+
+
+def _supports_protocol(ip: str, port: int, server_name: str, tls_version, timeout: float) -> bool:
+    """Attempt a handshake restricted to exactly one TLS version."""
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    try:
+        ctx.minimum_version = tls_version
+        ctx.maximum_version = tls_version
+    except (ValueError, OSError):
+        # This Python/OpenSSL build cannot pin to this version (often the case
+        # for the deprecated ones) — treat as "cannot test / not supported".
+        return False
+    try:
+        with socket.create_connection((ip, port), timeout=timeout) as sock:
+            with ctx.wrap_socket(sock, server_hostname=server_name):
+                return True
+    except (ssl.SSLError, socket.timeout, OSError):
+        return False
+
+
+def enumerate_protocols(ip: str, port: int, server_name: str, timeout: float) -> list[tuple[str, bool, Severity]]:
+    """Return [(version_name, supported, severity_if_supported), ...]."""
+    out = []
+    for name, version, sev in _PROTO_PROBES:
+        if version is None:
+            continue
+        out.append((name, _supports_protocol(ip, port, server_name, version, timeout), sev))
+    return out
+
+
 def _verified_cert(ip: str, port: int, server_name: str, timeout: float):
     """Return (cert_dict_or_None, validation_error_or_None)."""
     ctx = ssl.create_default_context()
@@ -95,6 +135,24 @@ class TLSAuditModule(AuditModule):
                                 if sev >= Severity.HIGH else ""),
                 evidence={"port": port, "protocol": version, "cipher": cipher},
             ))
+
+            # Enumerate which protocol versions the server will accept.
+            supported = enumerate_protocols(ip, port, server_name, ctx.timeout)
+            accepted = [name for name, ok, _ in supported if ok]
+            if accepted:
+                findings.append(self.finding(
+                    target, f"Supported TLS versions on port {port}",
+                    severity=Severity.INFO,
+                    detail=", ".join(accepted),
+                    evidence={"port": port, "supported": accepted}))
+            for name, ok, sev in supported:
+                if ok and sev >= Severity.HIGH:
+                    findings.append(self.finding(
+                        target, f"Deprecated {name} accepted on port {port}",
+                        severity=sev,
+                        detail=f"The server completes a handshake using {name}.",
+                        recommendation="Disable this protocol; require TLS 1.2+ (prefer 1.3).",
+                        evidence={"port": port, "protocol": name}))
 
             cert, err = _verified_cert(ip, port, server_name, ctx.timeout)
             if err:

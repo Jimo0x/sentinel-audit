@@ -33,17 +33,48 @@ that keep you inside your authorization.
 
 ## Features
 
+**Network & host**
+
 | Module | What it does |
 | --- | --- |
 | `discovery` | TCP-based host liveness sweep across a scope |
 | `portscan` | Concurrent TCP connect scan with common / full / custom port sets |
 | `services` | Banner grabbing + lightweight service & version fingerprinting |
-| `tls` | Certificate chain, expiry, protocol/version, weak-config flags |
+| `sshaudit` | SSH identification string: protocol (flags SSH-1) and version posture |
+| `tls` | Certificate chain & expiry, **per-version protocol enumeration**, weak-protocol flags |
+
+**Web application & API**
+
+| Module | What it does |
+| --- | --- |
 | `http` | Security headers (HSTS, CSP, X-Frame-Options…), server leakage, cookie flags |
+| `webcrawl` | Bounded same-host spider: pages, forms, robots/sitemap/security.txt, mixed content |
+| `exposure` | Exposed sensitive files (.git/.env/backups), directory listing, risky HTTP methods, broad CORS — with **soft-404 baselining** to avoid false positives |
+
+**Domain / email**
+
+| Module | What it does |
+| --- | --- |
 | `dns` | A/AAAA/MX/NS/TXT records, reverse DNS, common-subdomain enumeration |
+| `emailsec` | Anti-spoofing posture: SPF, DMARC, DKIM selectors, MX |
 
 All modules are **scope-gated** and emit structured `Finding` objects with a severity,
-so the reporting layer can prioritize automatically.
+so the reporting layer can prioritize automatically. The web modules issue only
+non-destructive `GET`/`OPTIONS` requests — Sentinel never submits payloads, fuzzes
+inputs, or attempts brute-forcing or exploitation.
+
+### Profiles
+
+Instead of listing modules by hand, pick a bundle with `--profile`:
+
+| Profile | Modules |
+| --- | --- |
+| `quick` | discovery, portscan, services |
+| `default` | discovery, portscan, services, tls, http, dns |
+| `web` | http, tls, exposure, webcrawl |
+| `server` | discovery, portscan, services, tls, sshaudit |
+| `email` | dns, emailsec |
+| `full` | everything |
 
 ## Install
 
@@ -91,9 +122,13 @@ pip install -e ".[yaml,dev]"
    python -m sentinel run --scope scopes/my-engagement.yaml \
        --target 192.168.56.10 --modules portscan,services
 
-   # Audit a web endpoint's TLS and headers:
+   # Full web-app audit of an in-scope site (headers, TLS, exposure, crawl):
    python -m sentinel run --scope scopes/my-engagement.yaml \
-       --target test.internal.acme.example --modules tls,http
+       --target test.internal.acme.example --profile web --out reports/
+
+   # Email anti-spoofing posture for a domain:
+   python -m sentinel run --scope scopes/my-engagement.yaml \
+       --target acme.example --profile email
    ```
 
 3. **Or launch the desktop UI:**
@@ -130,12 +165,10 @@ sentinel/
 │   └── report.py        # JSON / Markdown / HTML renderers
 ├── modules/
 │   ├── base.py          # AuditModule interface + registry
-│   ├── discovery.py
-│   ├── portscan.py
-│   ├── services.py
-│   ├── tls_audit.py
-│   ├── http_audit.py
-│   └── dns_enum.py
+│   ├── _http.py         # shared non-destructive HTTP fetch helper
+│   ├── discovery.py     portscan.py    services.py   sshaudit.py
+│   ├── tls_audit.py     http_audit.py  webcrawl.py   exposure.py
+│   └── dns_enum.py      emailsec.py
 └── gui/
     └── app.py           # zero-dependency local web UI
 ```

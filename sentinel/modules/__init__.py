@@ -11,6 +11,10 @@ from sentinel.modules import (  # noqa: F401  (side-effect registration)
     tls_audit,
     http_audit,
     dns_enum,
+    webcrawl,
+    exposure,
+    emailsec,
+    sshaudit,
 )
 
 __all__ = ["AuditModule", "ModuleContext", "get_module", "all_modules"]

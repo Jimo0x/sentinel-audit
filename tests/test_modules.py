@@ -9,7 +9,8 @@ from sentinel.modules.portscan import parse_ports
 
 def test_all_builtin_modules_registered():
     names = set(all_modules())
-    assert {"discovery", "portscan", "services", "tls", "http", "dns"} <= names
+    assert {"discovery", "portscan", "services", "tls", "http", "dns",
+            "webcrawl", "exposure", "emailsec", "sshaudit"} <= names
 
 
 def test_parse_ports_variants():
