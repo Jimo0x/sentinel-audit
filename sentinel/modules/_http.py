@@ -7,6 +7,7 @@ Sentinel never submits payloads or attempts exploitation.
 from __future__ import annotations
 
 import ssl
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -41,9 +42,13 @@ def _unverified_ctx() -> ssl.SSLContext:
 
 def fetch(url: str, timeout: float = 5.0, method: str = "GET",
           max_bytes: int = 262_144, headers: dict | None = None,
-          allow_redirects: bool = True) -> HttpResponse:
-    """Fetch a URL. 4xx/5xx come back as a normal response, not an exception."""
-    req_headers = {"User-Agent": "sentinel-audit/0.2 (authorized-audit)"}
+          allow_redirects: bool = True, retries: int = 1) -> HttpResponse:
+    """Fetch a URL. 4xx/5xx come back as a normal response, not an exception.
+
+    Transient network errors are retried up to `retries` times with a short
+    backoff; an HTTP status (even 5xx) is treated as a definitive response.
+    """
+    req_headers = {"User-Agent": "sentinel-audit/0.3 (authorized-audit)"}
     if headers:
         req_headers.update(headers)
     req = urllib.request.Request(url, method=method, headers=req_headers)
@@ -53,19 +58,24 @@ def fetch(url: str, timeout: float = 5.0, method: str = "GET",
         handlers.append(_NoRedirect())
     opener = urllib.request.build_opener(*handlers)
 
-    try:
-        with opener.open(req, timeout=timeout) as resp:
-            body = resp.read(max_bytes) if method != "HEAD" else b""
-            return HttpResponse(url, resp.status, dict(resp.headers.items()), body)
-    except urllib.error.HTTPError as exc:
-        # HTTPError *is* a response: capture its status/headers/body.
+    last_err = ""
+    for attempt in range(max(1, retries + 1)):
         try:
-            body = exc.read(max_bytes)
-        except Exception:
-            body = b""
-        return HttpResponse(url, exc.code, dict(exc.headers.items()) if exc.headers else {}, body)
-    except (urllib.error.URLError, OSError, ValueError) as exc:
-        return HttpResponse(url, 0, {}, b"", error=str(exc))
+            with opener.open(req, timeout=timeout) as resp:
+                body = resp.read(max_bytes) if method != "HEAD" else b""
+                return HttpResponse(url, resp.status, dict(resp.headers.items()), body)
+        except urllib.error.HTTPError as exc:
+            try:
+                body = exc.read(max_bytes)
+            except Exception:
+                body = b""
+            return HttpResponse(url, exc.code, dict(exc.headers.items()) if exc.headers else {}, body)
+        except (urllib.error.URLError, OSError, ValueError) as exc:
+            last_err = str(exc)
+            if attempt < retries:
+                time.sleep(0.2 * (attempt + 1))
+            continue
+    return HttpResponse(url, 0, {}, b"", error=last_err)
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):

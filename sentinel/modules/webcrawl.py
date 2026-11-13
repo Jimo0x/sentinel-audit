@@ -17,7 +17,6 @@ from urllib.parse import urljoin, urlparse
 from sentinel.core.models import Finding, Severity, Target
 from sentinel.modules._http import fetch
 from sentinel.modules.base import AuditModule, ModuleContext, register
-from sentinel.modules.portscan import check_port
 from sentinel.modules.http_audit import WEB_PORTS
 
 MAX_PAGES = 40
@@ -52,10 +51,10 @@ class _LinkFormParser(HTMLParser):
             self._cur_form = None
 
 
-def _base_urls(ip: str, host: str, timeout: float) -> list[str]:
+def _base_urls(ctx: ModuleContext, ip: str, host: str) -> list[str]:
     bases = []
     for port, scheme in sorted(WEB_PORTS.items(), key=lambda kv: 0 if kv[1] == "https" else 1):
-        if check_port(ip, port, timeout):
+        if ctx.is_open(ip, port):
             netloc = host if port in (80, 443) else f"{host}:{port}"
             bases.append(f"{scheme}://{netloc}")
     return bases
@@ -69,7 +68,7 @@ class WebCrawlModule(AuditModule):
     def run(self, target: Target, ctx: ModuleContext) -> list[Finding]:
         ip = target.ip or target.spec
         host = target.hostname or target.spec
-        bases = _base_urls(ip, host, ctx.timeout)
+        bases = _base_urls(ctx, ip, host)
         if not bases:
             return [self.finding(target, "No web service to crawl", severity=Severity.INFO)]
 
@@ -78,7 +77,7 @@ class WebCrawlModule(AuditModule):
         findings: list[Finding] = []
 
         # --- well-known files ---------------------------------------------
-        findings += self._well_known(target, base)
+        findings += self._well_known(target, base, ctx)
 
         # --- bounded BFS crawl --------------------------------------------
         seen: set[str] = set()
@@ -91,6 +90,7 @@ class WebCrawlModule(AuditModule):
             if url in seen or depth > MAX_DEPTH:
                 continue
             seen.add(url)
+            ctx.throttle()
             resp = fetch(url, timeout=ctx.timeout)
             if resp.error or resp.status == 0:
                 continue
@@ -144,8 +144,9 @@ class WebCrawlModule(AuditModule):
                 evidence={"resources": sorted(mixed)[:25]}))
         return findings
 
-    def _well_known(self, target: Target, base: str) -> list[Finding]:
+    def _well_known(self, target: Target, base: str, ctx: ModuleContext) -> list[Finding]:
         out: list[Finding] = []
+        ctx.throttle()
         robots = fetch(base + "/robots.txt", timeout=2.0)
         if robots.status == 200 and robots.body:
             disallows = [ln.split(":", 1)[1].strip()

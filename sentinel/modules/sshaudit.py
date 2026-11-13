@@ -12,7 +12,6 @@ import socket
 
 from sentinel.core.models import Finding, Severity, Target
 from sentinel.modules.base import AuditModule, ModuleContext, register
-from sentinel.modules.portscan import check_port
 
 SSH_PORTS = [22, 2222]
 _OPENSSH_RE = re.compile(r"openssh[_-](\d+)\.(\d+)", re.IGNORECASE)
@@ -39,7 +38,7 @@ class SSHAuditModule(AuditModule):
     def run(self, target: Target, ctx: ModuleContext) -> list[Finding]:
         ip = target.ip or target.spec
         findings: list[Finding] = []
-        ports = [p for p in SSH_PORTS if check_port(ip, p, ctx.timeout)]
+        ports = [p for p in SSH_PORTS if ctx.is_open(ip, p)]
         if not ports:
             return [self.finding(target, "No SSH service detected", severity=Severity.INFO)]
 

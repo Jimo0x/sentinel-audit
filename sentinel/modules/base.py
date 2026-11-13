@@ -13,6 +13,7 @@ from typing import Callable, Type
 
 from sentinel.core.models import Finding, Target
 from sentinel.core.scope import Scope
+from sentinel.modules._netutil import PortCache, RateLimiter
 
 
 @dataclass
@@ -23,7 +24,23 @@ class ModuleContext:
     timeout: float = 2.0
     concurrency: int = 100
     ports: str = "common"            # "common" | "full" | "22,80,443" | "1-1024"
+    rate_delay: float = 0.0          # optional min delay between requests (politeness)
     extra: dict = field(default_factory=dict)
+    # Shared across all modules in a run so a port is probed at most once.
+    port_cache: PortCache = field(default_factory=PortCache)
+    rate_limiter: RateLimiter | None = None
+
+    def __post_init__(self):
+        if self.rate_limiter is None:
+            self.rate_limiter = RateLimiter(self.rate_delay)
+
+    def is_open(self, ip: str, port: int) -> bool:
+        """Memoized TCP-open check, shared across modules in this run."""
+        return self.port_cache.is_open(ip, port, self.timeout)
+
+    def throttle(self) -> None:
+        if self.rate_limiter:
+            self.rate_limiter.wait()
 
 
 class AuditModule:

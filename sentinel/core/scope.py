@@ -256,13 +256,22 @@ def _classify(entry: str) -> tuple[ipaddress._BaseNetwork | None, str | None]:
 
 
 def _resolve(spec: str) -> str | None:
-    """Resolve a hostname/IP to a single IP string, or None on failure."""
+    """Resolve a hostname/IP to a single IP string, or None on failure.
+
+    Prefers IPv4 for determinism, but falls back to IPv6 when a host is
+    AAAA-only. Both are matched against the scope's networks.
+    """
     try:
         ipaddress.ip_address(spec)
         return spec
     except ValueError:
         pass
     try:
-        return socket.gethostbyname(spec)
+        infos = socket.getaddrinfo(spec, None)
     except (socket.gaierror, OSError):
         return None
+    v4 = [i[4][0] for i in infos if i[0] == socket.AF_INET]
+    if v4:
+        return v4[0]
+    v6 = [i[4][0] for i in infos if i[0] == socket.AF_INET6]
+    return v6[0] if v6 else None

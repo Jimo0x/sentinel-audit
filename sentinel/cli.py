@@ -6,6 +6,7 @@ import sys
 
 from sentinel import __version__
 from sentinel.core.engine import Engine
+from sentinel.core.models import Severity
 from sentinel.core.report import to_json, to_markdown, write_reports
 from sentinel.core.scope import Scope, ScopeError
 from sentinel.modules import all_modules
@@ -46,10 +47,19 @@ def _build_parser() -> argparse.ArgumentParser:
                      help=f"comma-separated modules (overrides --profile; default: scope default or {','.join(DEFAULT_MODULES)})")
     run.add_argument("--ports", default=None, help="port spec: common|full|RANGE|LIST")
     run.add_argument("--timeout", type=float, default=None, help="per-connection timeout seconds")
-    run.add_argument("--concurrency", type=int, default=None, help="max concurrent connections")
-    run.add_argument("--out", default=None, help="directory to write JSON/MD/HTML reports")
+    run.add_argument("--concurrency", type=int, default=None, help="max concurrent connections (port scan)")
+    run.add_argument("--target-concurrency", type=int, default=4,
+                     help="how many targets to audit in parallel (default 4)")
+    run.add_argument("--rate-delay", type=float, default=0.0,
+                     help="minimum seconds between requests (politeness; default 0)")
+    run.add_argument("--out", default=None, help="directory to write report files")
+    run.add_argument("--out-formats", default="json,md,html",
+                     help="comma list of file formats for --out: json,md,html,sarif,csv")
     run.add_argument("--format", default="md",
                      help="stdout format: md|json|none (default md). Files written if --out given.")
+    run.add_argument("--fail-on", default="high",
+                     choices=["critical", "high", "medium", "low", "info", "none"],
+                     help="exit non-zero if any finding at/above this severity (default high)")
     run.add_argument("--yes", action="store_true",
                      help="skip the interactive authorization confirmation")
 
@@ -59,6 +69,19 @@ def _build_parser() -> argparse.ArgumentParser:
     # scope -------------------------------------------------------------
     sc = sub.add_parser("scope", help="validate a scope file and show what it authorizes")
     sc.add_argument("--scope", required=True, help="path to engagement scope file")
+
+    # diff --------------------------------------------------------------
+    df = sub.add_parser("diff", help="compare two JSON reports (remediation tracking)")
+    df.add_argument("old", help="path to the older report .json")
+    df.add_argument("new", help="path to the newer report .json")
+    df.add_argument("--json", action="store_true", help="output machine-readable JSON")
+
+    # import-nmap -------------------------------------------------------
+    nm = sub.add_parser("import-nmap", help="convert an nmap XML scan into a Sentinel report")
+    nm.add_argument("xml", help="path to nmap -oX output")
+    nm.add_argument("--scope", default=None, help="optional scope file to tag in/out-of-scope hosts")
+    nm.add_argument("--out", default=None, help="directory to write report files")
+    nm.add_argument("--out-formats", default="json,md,html", help="comma list: json,md,html,sarif,csv")
 
     # gui ---------------------------------------------------------------
     gui = sub.add_parser("gui", help="launch the local desktop web UI")
@@ -89,6 +112,7 @@ def _resolve_run_config(scope: Scope, args) -> tuple[list[str], list[str], Modul
         timeout=args.timeout if args.timeout is not None else float(defaults.get("timeout", 2.0)),
         concurrency=args.concurrency if args.concurrency is not None else int(defaults.get("concurrency", 100)),
         ports=args.ports or str(defaults.get("ports", "common")),
+        rate_delay=args.rate_delay if getattr(args, "rate_delay", 0.0) else float(defaults.get("rate_delay", 0.0)),
     )
     return specs, module_names, ctx
 
@@ -122,7 +146,8 @@ def cmd_run(args) -> int:
             print("Aborted.")
             return 1
 
-    engine = Engine(scope, ctx, progress=lambda m: print(m))
+    engine = Engine(scope, ctx, progress=lambda m: print(m),
+                    target_concurrency=args.target_concurrency)
     report = engine.run(specs, module_names)
 
     # stdout
@@ -137,18 +162,26 @@ def cmd_run(args) -> int:
 
     # files
     if args.out:
-        paths = write_reports(report, args.out)
+        fmts = tuple(f.strip() for f in args.out_formats.split(",") if f.strip())
+        paths = write_reports(report, args.out, formats=fmts)
         print("\nReports written:")
         for p in paths:
             print(f"  - {p}")
 
     counts = report.severity_counts()
-    high = counts["CRITICAL"] + counts["HIGH"]
     print(f"\nDone. Findings — "
           f"Critical:{counts['CRITICAL']} High:{counts['HIGH']} "
           f"Medium:{counts['MEDIUM']} Low:{counts['LOW']} Info:{counts['INFO']}")
-    # Non-zero exit if notable findings, useful in CI gates.
-    return 0 if high == 0 else 3
+
+    # CI gate: non-zero exit if anything at/above the --fail-on threshold.
+    if args.fail_on == "none":
+        return 0
+    threshold = Severity.from_str(args.fail_on)
+    triggered = sum(c for s, c in counts.items() if Severity[s] >= threshold)
+    if triggered:
+        print(f"Gate: {triggered} finding(s) at or above {threshold.label} → exit 3")
+        return 3
+    return 0
 
 
 def cmd_modules(_args) -> int:
@@ -174,6 +207,40 @@ def cmd_scope(args) -> int:
     return 0
 
 
+def cmd_diff(args) -> int:
+    from sentinel.core.diff import diff_reports, render_diff_text
+    try:
+        d = diff_reports(args.old, args.new)
+    except (OSError, ValueError) as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(d.to_dict(), indent=2))
+    else:
+        print(render_diff_text(d))
+    return 0
+
+
+def cmd_import_nmap(args) -> int:
+    from sentinel.integrations.nmap_import import import_nmap
+    try:
+        scope = Scope.load(args.scope) if args.scope else None
+    except ScopeError as exc:
+        print(f"[scope error] {exc}", file=sys.stderr)
+        return 2
+    try:
+        report = import_nmap(args.xml, scope=scope)
+    except (OSError, ValueError) as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        return 2
+    print(to_markdown(report))
+    if args.out:
+        fmts = tuple(f.strip() for f in args.out_formats.split(",") if f.strip())
+        for p in write_reports(report, args.out, formats=fmts):
+            print(f"  - {p}")
+    return 0
+
+
 def cmd_gui(args) -> int:
     from sentinel.gui.app import serve
     return serve(host=args.host, port=args.port, open_browser=not args.no_browser)
@@ -186,6 +253,8 @@ def main(argv: list[str] | None = None) -> int:
         "run": cmd_run,
         "modules": cmd_modules,
         "scope": cmd_scope,
+        "diff": cmd_diff,
+        "import-nmap": cmd_import_nmap,
         "gui": cmd_gui,
     }
     try:

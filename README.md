@@ -137,6 +137,43 @@ pip install -e ".[yaml,dev]"
    python -m sentinel gui      # opens a local web UI in your browser
    ```
 
+## Reports, CI gating & integrations
+
+Write any combination of formats with `--out-formats` (default `json,md,html`):
+
+```bash
+python -m sentinel run --scope s.yaml --profile web \
+    --out reports/ --out-formats json,html,sarif,csv --fail-on high
+```
+
+- **SARIF** (`.sentinel.sarif`) — drop into GitHub code scanning or any SARIF viewer.
+- **CSV** (`.sentinel.csv`) — open findings in a spreadsheet.
+- **HTML** — interactive: filter by severity, target, and free-text search.
+- **`--fail-on <level>`** — exit code `3` if any finding is at/above the level
+  (`critical|high|medium|low|info|none`), so a pipeline can block on it.
+
+**Track remediation between assessments:**
+
+```bash
+python -m sentinel diff last-week.sentinel.json today.sentinel.json
+#   + 1 new   - 3 resolved   = 12 unchanged
+```
+
+**Fold in an external nmap scan:**
+
+```bash
+nmap -oX scan.xml -sV 192.168.56.0/24
+python -m sentinel import-nmap scan.xml --scope s.yaml --out reports/
+```
+
+## Performance
+
+- A **shared port cache** means each `host:port` is probed once per run, even when
+  six modules all need to know whether 443 is open.
+- **Targets are audited in parallel** (`--target-concurrency`, default 4); within a
+  target, `portscan` runs first to warm the cache for the rest.
+- **`--rate-delay`** adds a polite minimum gap between requests for sensitive targets.
+
 ## Rules of engagement
 
 Every run requires a **scope file**. Before any module touches the network, Sentinel:
@@ -161,8 +198,11 @@ sentinel/
 ├── core/
 │   ├── models.py        # Target, Finding, ModuleResult, AuditReport, Severity
 │   ├── scope.py         # scope parsing + authorization enforcement
-│   ├── engine.py        # orchestrates modules over in-scope targets
-│   └── report.py        # JSON / Markdown / HTML renderers
+│   ├── engine.py        # parallel orchestration over in-scope targets
+│   ├── report.py        # JSON / Markdown / HTML / SARIF / CSV renderers
+│   └── diff.py          # remediation tracking between two reports
+├── integrations/
+│   └── nmap_import.py   # fold nmap XML into the report model
 ├── modules/
 │   ├── base.py          # AuditModule interface + registry
 │   ├── _http.py         # shared non-destructive HTTP fetch helper

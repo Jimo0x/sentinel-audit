@@ -13,7 +13,6 @@ import urllib.request
 
 from sentinel.core.models import Finding, Severity, Target
 from sentinel.modules.base import AuditModule, ModuleContext, register
-from sentinel.modules.portscan import check_port
 
 # port -> scheme
 WEB_PORTS = {80: "http", 8080: "http", 8000: "http", 8888: "http",
@@ -50,7 +49,7 @@ class HTTPAuditModule(AuditModule):
         host = target.hostname or target.spec
         findings: list[Finding] = []
 
-        open_web = {p: s for p, s in WEB_PORTS.items() if check_port(ip, p, ctx.timeout)}
+        open_web = {p: s for p, s in WEB_PORTS.items() if ctx.is_open(ip, p)}
         if not open_web:
             return [self.finding(
                 target, "No HTTP(S) services detected",

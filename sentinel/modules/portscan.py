@@ -6,11 +6,14 @@ pool sized from the module context.
 """
 from __future__ import annotations
 
-import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from sentinel.core.models import Finding, Severity, Target
 from sentinel.modules.base import AuditModule, ModuleContext, register
+from sentinel.modules._netutil import tcp_open
+
+# Backwards-compatible alias: a bare TCP-open probe.
+check_port = tcp_open
 
 # A pragmatic "top ports" list covering the services you meet most often.
 COMMON_PORTS = [
@@ -53,15 +56,6 @@ def parse_ports(spec: str) -> list[int]:
     return sorted(p for p in ports if 1 <= p <= 65535)
 
 
-def check_port(ip: str, port: int, timeout: float) -> bool:
-    """Return True if a TCP connection to ip:port succeeds."""
-    try:
-        with socket.create_connection((ip, port), timeout=timeout):
-            return True
-    except (socket.timeout, ConnectionRefusedError, OSError):
-        return False
-
-
 @register
 class PortScanModule(AuditModule):
     name = "portscan"
@@ -72,9 +66,10 @@ class PortScanModule(AuditModule):
         ports = parse_ports(ctx.ports)
         open_ports: list[int] = []
 
+        # Probe through the shared cache so results are reused by later modules.
         workers = max(1, min(ctx.concurrency, len(ports)))
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(check_port, ip, p, ctx.timeout): p for p in ports}
+            futures = {pool.submit(ctx.is_open, ip, p): p for p in ports}
             for fut in as_completed(futures):
                 if fut.result():
                     open_ports.append(futures[fut])

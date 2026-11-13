@@ -14,7 +14,6 @@ from urllib.parse import urlparse
 from sentinel.core.models import Finding, Severity, Target
 from sentinel.modules._http import fetch
 from sentinel.modules.base import AuditModule, ModuleContext, register
-from sentinel.modules.portscan import check_port
 from sentinel.modules.http_audit import WEB_PORTS
 
 # path -> (label, severity, signature substring to confirm it's really the file)
@@ -44,9 +43,9 @@ DIR_LISTING_PATHS = ["/", "/images/", "/uploads/", "/files/", "/backup/", "/stat
 INTERESTING_METHODS = {"PUT", "DELETE", "TRACE", "CONNECT", "PATCH"}
 
 
-def _base_url(ip: str, host: str, timeout: float) -> str | None:
+def _base_url(ctx: ModuleContext, ip: str, host: str) -> str | None:
     for port, scheme in sorted(WEB_PORTS.items(), key=lambda kv: 0 if kv[1] == "https" else 1):
-        if check_port(ip, port, timeout):
+        if ctx.is_open(ip, port):
             netloc = host if port in (80, 443) else f"{host}:{port}"
             return f"{scheme}://{netloc}"
     return None
@@ -60,30 +59,33 @@ class ExposureModule(AuditModule):
     def run(self, target: Target, ctx: ModuleContext) -> list[Finding]:
         ip = target.ip or target.spec
         host = target.hostname or target.spec
-        base = _base_url(ip, host, ctx.timeout)
+        base = _base_url(ctx, ip, host)
         if not base:
             return [self.finding(target, "No web service for exposure checks", severity=Severity.INFO)]
 
         findings: list[Finding] = []
-        findings += self._sensitive_files(target, base, ctx.timeout)
-        findings += self._dir_listing(target, base, ctx.timeout)
-        findings += self._methods(target, base, ctx.timeout)
-        findings += self._cors(target, base, ctx.timeout)
+        findings += self._sensitive_files(target, base, ctx)
+        findings += self._dir_listing(target, base, ctx)
+        findings += self._methods(target, base, ctx)
+        findings += self._cors(target, base, ctx)
         if not findings:
             findings.append(self.finding(target, "No exposure issues detected", severity=Severity.INFO))
         return findings
 
-    def _sensitive_files(self, target, base, timeout) -> list[Finding]:
+    def _sensitive_files(self, target, base, ctx) -> list[Finding]:
+        timeout = ctx.timeout
         out = []
         # Baseline probe: a path that should not exist. If it still returns 200,
         # the server has a catch-all / soft-404, so a bare 200 means nothing —
         # we then require either a signature match or a body that differs from
         # the baseline before flagging anything.
+        ctx.throttle()
         baseline = fetch(base + "/sentinel-nonexistent-a9f3c1e7", timeout=timeout)
         soft_200 = baseline.status == 200
         baseline_body = baseline.body if soft_200 else b""
 
         for path, (label, sev, sig) in SENSITIVE_PATHS.items():
+            ctx.throttle()
             resp = fetch(base + path, timeout=timeout)
             if resp.status != 200 or not resp.body:
                 continue
@@ -113,9 +115,11 @@ class ExposureModule(AuditModule):
                 evidence={"url": base + path, "status": resp.status, "confidence": confidence}))
         return out
 
-    def _dir_listing(self, target, base, timeout) -> list[Finding]:
+    def _dir_listing(self, target, base, ctx) -> list[Finding]:
+        timeout = ctx.timeout
         out = []
         for path in DIR_LISTING_PATHS:
+            ctx.throttle()
             resp = fetch(base + path, timeout=timeout)
             if resp.status == 200 and ("Index of /" in resp.text or "<title>Directory listing for" in resp.text):
                 out.append(self.finding(
@@ -125,7 +129,8 @@ class ExposureModule(AuditModule):
                     evidence={"url": base + path}))
         return out
 
-    def _methods(self, target, base, timeout) -> list[Finding]:
+    def _methods(self, target, base, ctx) -> list[Finding]:
+        timeout = ctx.timeout
         resp = fetch(base + "/", timeout=timeout, method="OPTIONS")
         allow = resp.header("allow")
         if not allow:
@@ -143,7 +148,8 @@ class ExposureModule(AuditModule):
                 evidence={"methods": risky}))
         return out
 
-    def _cors(self, target, base, timeout) -> list[Finding]:
+    def _cors(self, target, base, ctx) -> list[Finding]:
+        timeout = ctx.timeout
         probe = "https://sentinel-cors-probe.example"
         resp = fetch(base + "/", timeout=timeout, headers={"Origin": probe})
         acao = resp.header("access-control-allow-origin")

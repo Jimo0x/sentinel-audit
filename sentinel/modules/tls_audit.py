@@ -12,12 +12,24 @@ from datetime import datetime, timezone
 
 from sentinel.core.models import Finding, Severity, Target
 from sentinel.modules.base import AuditModule, ModuleContext, register
-from sentinel.modules.portscan import check_port
 
 TLS_PORTS = [443, 8443, 993, 995, 465, 636, 990, 989, 5986]
 
 # Protocols considered deprecated/insecure.
 WEAK_PROTOCOLS = {"SSLv2", "SSLv3", "TLSv1", "TLSv1.1"}
+
+# Tokens in a cipher name that indicate a weak/legacy cipher.
+WEAK_CIPHER_TOKENS = ("RC4", "3DES", "DES-", "DES_", "NULL", "EXPORT", "MD5", "ANON", "IDEA", "SEED")
+
+
+def _cipher_is_weak(cipher: str | None) -> str | None:
+    if not cipher:
+        return None
+    up = cipher.upper()
+    for tok in WEAK_CIPHER_TOKENS:
+        if tok in up:
+            return tok
+    return None
 
 
 def _parse_cert_time(value: str) -> datetime | None:
@@ -107,7 +119,7 @@ class TLSAuditModule(AuditModule):
         server_name = target.hostname or target.spec
         findings: list[Finding] = []
 
-        tls_ports = [p for p in TLS_PORTS if check_port(ip, p, ctx.timeout)]
+        tls_ports = [p for p in TLS_PORTS if ctx.is_open(ip, p)]
         if not tls_ports:
             return [self.finding(
                 target, "No TLS services detected",
@@ -135,6 +147,15 @@ class TLSAuditModule(AuditModule):
                                 if sev >= Severity.HIGH else ""),
                 evidence={"port": port, "protocol": version, "cipher": cipher},
             ))
+
+            weak_tok = _cipher_is_weak(cipher)
+            if weak_tok:
+                findings.append(self.finding(
+                    target, f"Weak TLS cipher negotiated on port {port}",
+                    severity=Severity.HIGH,
+                    detail=f"Negotiated cipher {cipher} contains a weak primitive ({weak_tok}).",
+                    recommendation="Remove legacy ciphers (RC4/3DES/DES/NULL/EXPORT/MD5) from the server config.",
+                    evidence={"port": port, "cipher": cipher, "weak_token": weak_tok}))
 
             # Enumerate which protocol versions the server will accept.
             supported = enumerate_protocols(ip, port, server_name, ctx.timeout)

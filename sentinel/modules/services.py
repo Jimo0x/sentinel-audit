@@ -10,7 +10,7 @@ import socket
 
 from sentinel.core.models import Finding, Severity, Target
 from sentinel.modules.base import AuditModule, ModuleContext, register
-from sentinel.modules.portscan import WELL_KNOWN, check_port, parse_ports
+from sentinel.modules.portscan import WELL_KNOWN, parse_ports
 
 HTTP_PORTS = {80, 8000, 8008, 8080, 8081, 8888, 3000, 5000, 9000, 9090}
 
@@ -56,7 +56,7 @@ class ServicesModule(AuditModule):
         findings: list[Finding] = []
 
         for port in ports:
-            if not check_port(ip, port, ctx.timeout):
+            if not ctx.is_open(ip, port):
                 continue
             banner = grab_banner(ip, port, ctx.timeout)
             svc = WELL_KNOWN.get(port, "unknown")
