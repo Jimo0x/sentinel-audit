@@ -15,6 +15,7 @@ from sentinel.modules import (  # noqa: F401  (side-effect registration)
     exposure,
     emailsec,
     sshaudit,
+    vulnhints,
 )
 
 __all__ = ["AuditModule", "ModuleContext", "get_module", "all_modules"]

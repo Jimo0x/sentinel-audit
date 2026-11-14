@@ -41,7 +41,8 @@ that keep you inside your authorization.
 | `portscan` | Concurrent TCP connect scan with common / full / custom port sets |
 | `services` | Banner grabbing + lightweight service & version fingerprinting |
 | `sshaudit` | SSH identification string: protocol (flags SSH-1) and version posture |
-| `tls` | Certificate chain & expiry, **per-version protocol enumeration**, weak-protocol flags |
+| `tls` | Certificate chain & expiry, **per-version protocol enumeration**, weak protocol/cipher flags |
+| `vulnhints` | Flags potentially outdated software versions from banners (advisory, links vendor pages) |
 
 **Web application & API**
 
@@ -75,6 +76,32 @@ Instead of listing modules by hand, pick a bundle with `--profile`:
 | `server` | discovery, portscan, services, tls, sshaudit |
 | `email` | dns, emailsec |
 | `full` | everything |
+
+## Native desktop apps (Windows & Linux)
+
+Sentinel runs as a CLI and a local desktop GUI everywhere Python runs, and can
+be packaged into **standalone native executables** — no Python needed on the
+target machine.
+
+**Easiest — let GitHub build them for you.** Push a version tag and the
+`build` workflow produces Windows `.exe` and Linux binaries as release assets:
+
+```bash
+git tag v0.4.0 && git push origin v0.4.0
+# → Actions build sentinel(.exe) + sentinel-desktop(.exe) for both OSes
+```
+
+**Build locally:**
+
+```bash
+pip install ".[desktop,build]"      # pyinstaller + pywebview
+bash packaging/build-linux.sh        # → dist/sentinel, dist/sentinel-desktop (+AppImage if appimagetool present)
+# Windows:
+powershell -ExecutionPolicy Bypass -File packaging\build-windows.ps1
+```
+
+The GUI opens in a **native window** when `pywebview` is installed
+(`sentinel gui --native`), and falls back to the browser otherwise.
 
 ## Install
 
@@ -173,6 +200,36 @@ python -m sentinel import-nmap scan.xml --scope s.yaml --out reports/
 - **Targets are audited in parallel** (`--target-concurrency`, default 4); within a
   target, `portscan` runs first to warm the cache for the rest.
 - **`--rate-delay`** adds a polite minimum gap between requests for sensitive targets.
+
+## Professional reporting
+
+Findings now carry **CWE** and **OWASP Top 10** classifications where applicable,
+and every report leads with an **executive summary**: a weighted **risk score
+(0–100) and letter grade**, plus the most urgent findings. SARIF, CSV, Markdown,
+and the interactive HTML report all surface this.
+
+## Extensibility (plugins)
+
+Add your own audit modules without forking. Sentinel discovers plugins from:
+
+- `SENTINEL_PLUGINS` — comma-separated importable module paths, or
+- `~/.sentinel/plugins/*.py` (drop-in files), or
+- installed packages exposing a `sentinel.modules` entry point.
+
+A plugin is just a `AuditModule` subclass decorated with `@register`:
+
+```python
+from sentinel.modules.base import AuditModule, register
+
+@register
+class MyCheck(AuditModule):
+    name = "mycheck"
+    description = "my custom audit"
+    def run(self, target, ctx):
+        return []   # return a list of Finding objects
+```
+
+It then appears in `sentinel modules` and can be used like any built-in.
 
 ## Rules of engagement
 

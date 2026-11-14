@@ -63,6 +63,10 @@ class Finding:
     evidence: dict[str, Any] = field(default_factory=dict)
     # Optional remediation guidance for report readers.
     recommendation: str = ""
+    # Optional classification for professional reporting.
+    cwe: str | None = None             # e.g. "CWE-16"
+    owasp: str | None = None           # e.g. "A05:2021 Security Misconfiguration"
+    references: list[str] = field(default_factory=list)
     timestamp: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:
@@ -122,6 +126,25 @@ class AuditReport:
             counts[f.severity.name] += 1
         return counts
 
+    # Weighted risk score (0-100) for an at-a-glance posture read.
+    _RISK_WEIGHTS = {"CRITICAL": 40, "HIGH": 15, "MEDIUM": 5, "LOW": 1, "INFO": 0}
+
+    def risk_score(self) -> int:
+        counts = self.severity_counts()
+        raw = sum(self._RISK_WEIGHTS[s] * n for s, n in counts.items())
+        return min(100, raw)
+
+    def risk_grade(self) -> str:
+        s = self.risk_score()
+        if s >= 70: return "F"
+        if s >= 45: return "D"
+        if s >= 25: return "C"
+        if s >= 10: return "B"
+        return "A"
+
+    def top_findings(self, n: int = 5) -> list[Finding]:
+        return sorted(self.findings, key=lambda f: -int(f.severity))[:n]
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "engagement": self.engagement,
@@ -132,5 +155,7 @@ class AuditReport:
             "scope_summary": self.scope_summary,
             "targets": [asdict(t) for t in self.targets],
             "severity_counts": self.severity_counts(),
+            "risk_score": self.risk_score(),
+            "risk_grade": self.risk_grade(),
             "results": [r.to_dict() for r in self.results],
         }

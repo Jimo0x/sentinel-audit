@@ -21,6 +21,7 @@ scopes/*.yaml
 scopes/*.yml
 scopes/*.json
 !scopes/example.yaml
+!scopes/example.json
 
 # Editors / OS
 .vscode/
