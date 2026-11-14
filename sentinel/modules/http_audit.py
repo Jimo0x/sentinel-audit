@@ -88,6 +88,7 @@ class HTTPAuditModule(AuditModule):
                         severity=sev,
                         detail=f"{url} does not set {header}.",
                         recommendation=rec,
+                        cwe="CWE-693", owasp="A05:2021 Security Misconfiguration",
                         evidence={"url": url, "header": header},
                     ))
 

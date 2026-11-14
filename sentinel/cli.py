@@ -18,11 +18,11 @@ DEFAULT_MODULES = ["discovery", "portscan", "services", "tls", "http", "dns"]
 PROFILES = {
     "quick": ["discovery", "portscan", "services"],
     "default": DEFAULT_MODULES,
-    "web": ["http", "tls", "exposure", "webcrawl"],
-    "server": ["discovery", "portscan", "services", "tls", "sshaudit"],
+    "web": ["http", "tls", "exposure", "webcrawl", "vulnhints"],
+    "server": ["discovery", "portscan", "services", "tls", "sshaudit", "vulnhints"],
     "email": ["dns", "emailsec"],
     "full": ["discovery", "portscan", "services", "tls", "http", "dns",
-             "webcrawl", "exposure", "emailsec", "sshaudit"],
+             "webcrawl", "exposure", "emailsec", "sshaudit", "vulnhints"],
 }
 
 
@@ -88,6 +88,8 @@ def _build_parser() -> argparse.ArgumentParser:
     gui.add_argument("--host", default="127.0.0.1")
     gui.add_argument("--port", type=int, default=8787)
     gui.add_argument("--no-browser", action="store_true", help="don't auto-open a browser")
+    gui.add_argument("--native", action="store_true",
+                     help="open in a native OS window (requires pywebview; falls back to browser)")
 
     return p
 
@@ -242,11 +244,20 @@ def cmd_import_nmap(args) -> int:
 
 
 def cmd_gui(args) -> int:
+    if getattr(args, "native", False):
+        from sentinel.desktop import launch
+        return launch(host=args.host, port=args.port)
     from sentinel.gui.app import serve
     return serve(host=args.host, port=args.port, open_browser=not args.no_browser)
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Load any user/third-party plugins so their modules register before dispatch.
+    try:
+        from sentinel.modules.plugins import load_plugins
+        load_plugins()
+    except Exception:
+        pass
     parser = _build_parser()
     args = parser.parse_args(argv)
     dispatch = {

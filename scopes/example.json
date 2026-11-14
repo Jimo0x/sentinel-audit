@@ -1,0 +1,13 @@
+{
+  "engagement": "Local self-test",
+  "authorized_by": "you@example.com — you own/control these hosts",
+  "authorized_until": "2030-12-31",
+  "targets": ["127.0.0.1", "localhost"],
+  "exclude": [],
+  "defaults": {
+    "modules": ["discovery", "portscan", "services", "tls", "http", "dns"],
+    "ports": "common",
+    "timeout": 2.0,
+    "concurrency": 100
+  }
+}

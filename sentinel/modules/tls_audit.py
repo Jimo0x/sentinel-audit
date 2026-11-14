@@ -155,6 +155,7 @@ class TLSAuditModule(AuditModule):
                     severity=Severity.HIGH,
                     detail=f"Negotiated cipher {cipher} contains a weak primitive ({weak_tok}).",
                     recommendation="Remove legacy ciphers (RC4/3DES/DES/NULL/EXPORT/MD5) from the server config.",
+                    cwe="CWE-327", owasp="A02:2021 Cryptographic Failures",
                     evidence={"port": port, "cipher": cipher, "weak_token": weak_tok}))
 
             # Enumerate which protocol versions the server will accept.
@@ -173,6 +174,7 @@ class TLSAuditModule(AuditModule):
                         severity=sev,
                         detail=f"The server completes a handshake using {name}.",
                         recommendation="Disable this protocol; require TLS 1.2+ (prefer 1.3).",
+                        cwe="CWE-327", owasp="A02:2021 Cryptographic Failures",
                         evidence={"port": port, "protocol": name}))
 
             cert, err = _verified_cert(ip, port, server_name, ctx.timeout)

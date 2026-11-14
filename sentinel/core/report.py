@@ -46,7 +46,19 @@ def to_markdown(report: AuditReport) -> str:
     lines.append(f"- **Targets audited:** {len(report.targets)}")
     lines.append("")
 
-    lines.append("## Summary\n")
+    lines.append("## Executive summary\n")
+    lines.append(f"- **Risk score:** {d.get('risk_score', 0)}/100  (grade **{d.get('risk_grade', 'A')}**)")
+    top = report.top_findings(5)
+    if any(f.severity >= Severity.MEDIUM for f in top):
+        lines.append("- **Most urgent:**")
+        for f in top:
+            if f.severity >= Severity.MEDIUM:
+                lines.append(f"  - [{f.severity.label}] {f.target} — {f.title}")
+    else:
+        lines.append("- No medium-or-higher findings recorded.")
+    lines.append("")
+
+    lines.append("## Findings by severity\n")
     lines.append("| Severity | Count |")
     lines.append("| --- | --- |")
     for sev in _SEV_ORDER:
@@ -71,6 +83,9 @@ def to_markdown(report: AuditReport) -> str:
         lines.append(f"- **Module:** {f.module}")
         if f.detail:
             lines.append(f"- **Detail:** {f.detail}")
+        if f.cwe or f.owasp:
+            tags = ", ".join(x for x in (f.cwe, f.owasp) if x)
+            lines.append(f"- **Classification:** {tags}")
         if f.recommendation:
             lines.append(f"- **Recommendation:** {f.recommendation}")
         if f.evidence:
@@ -113,6 +128,8 @@ def to_html(report: AuditReport) -> str:
             f'<td>{esc(f.module)}</td>'
             f'<td><strong>{esc(f.title)}</strong>'
             + (f'<div class="detail">{esc(f.detail)}</div>' if f.detail else "")
+            + (f'<div class="cls">{esc(", ".join(x for x in (f.cwe, f.owasp) if x))}</div>'
+               if (f.cwe or f.owasp) else "")
             + (f'<div class="rec">↳ {esc(f.recommendation)}</div>' if f.recommendation else "")
             + (f'<div class="ev"><code>{ev}</code></div>' if ev else "")
             + f'</td></tr>'
@@ -143,6 +160,7 @@ def to_html(report: AuditReport) -> str:
   .pill {{ color: #fff; padding: 2px 8px; border-radius: 6px; font-size: 12px; white-space: nowrap; }}
   .detail {{ color: #c7cdd6; margin-top: 4px; }}
   .rec {{ color: #7fd1a0; margin-top: 4px; font-size: 13px; }}
+  .cls {{ color: #c9a6e0; margin-top: 3px; font-size: 12px; }}
   .ev code {{ color: #8ab4f8; font-size: 12px; word-break: break-all; }}
   .denied li {{ color: #c7cdd6; }}
   footer {{ padding: 16px 32px; color: #6b7280; font-size: 12px; }}
@@ -165,6 +183,7 @@ def to_html(report: AuditReport) -> str:
     {len(report.targets)} target(s)
   </div>
   <div class="chips">{chips}</div>
+  <div class="meta">Risk score: <strong>{d.get('risk_score', 0)}/100</strong> · grade <strong>{d.get('risk_grade', 'A')}</strong></div>
 </header>
 <main>
   {denied_html}
@@ -286,10 +305,12 @@ def _slug(text: str) -> str:
 def to_csv(report: AuditReport) -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["severity", "target", "module", "title", "detail", "recommendation", "evidence"])
+    w.writerow(["severity", "target", "module", "title", "detail", "recommendation",
+                "cwe", "owasp", "evidence"])
     for f in sorted(report.findings, key=lambda x: (-int(x.severity), x.target, x.module)):
         w.writerow([f.severity.name, f.target, f.module, f.title, f.detail,
-                    f.recommendation, json.dumps(f.evidence, ensure_ascii=False)])
+                    f.recommendation, f.cwe or "", f.owasp or "",
+                    json.dumps(f.evidence, ensure_ascii=False)])
     return buf.getvalue()
 
 

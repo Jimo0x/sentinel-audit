@@ -112,6 +112,7 @@ class ExposureModule(AuditModule):
                 target, label, severity=sev,
                 detail=f"{base + path} exposed — {confidence}.",
                 recommendation="Remove the file from the web root or block access; rotate any leaked secrets.",
+                cwe="CWE-200", owasp="A05:2021 Security Misconfiguration",
                 evidence={"url": base + path, "status": resp.status, "confidence": confidence}))
         return out
 
@@ -126,6 +127,7 @@ class ExposureModule(AuditModule):
                     target, f"Directory listing enabled: {path}", severity=Severity.MEDIUM,
                     detail=f"{base + path} returns an auto-generated index.",
                     recommendation="Disable automatic directory indexing.",
+                    cwe="CWE-548", owasp="A05:2021 Security Misconfiguration",
                     evidence={"url": base + path}))
         return out
 
@@ -161,6 +163,7 @@ class ExposureModule(AuditModule):
                 target, "Dangerous CORS: reflects arbitrary origin with credentials", severity=Severity.HIGH,
                 detail=f"Access-Control-Allow-Origin reflected {probe} with Allow-Credentials: true.",
                 recommendation="Never reflect arbitrary Origins with credentials; use an explicit allow-list.",
+                cwe="CWE-942", owasp="A05:2021 Security Misconfiguration",
                 evidence={"acao": acao, "acac": acac})]
         if acao == "*" and acac == "true":
             return [self.finding(
